@@ -13,7 +13,7 @@ R14
 L82
 ";
 
-static VERBOSE: bool = true;
+static VERBOSE: bool = false;
 
 fn main() {
     println!("*******************");
@@ -150,7 +150,9 @@ fn part_two() {
         // Do so by computing full cycles with integer division
         // then like before, treat the remainder (whilst considering passes to zero)
         if offset > 99 {
-            println!("  big offset, adding {}", offset / 100);
+            if VERBOSE {
+                println!("  big offset, adding {}", offset / 100);
+            }
             czero += offset / 100;
         }
         let remainder = offset % 100;
