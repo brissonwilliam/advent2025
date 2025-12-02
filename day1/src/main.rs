@@ -93,10 +93,10 @@ fn part_one() {
         c += 1;
     }
 
+    let elapsed = start_time.elapsed().as_micros();
     println!(
         "finished processing {} lines in {}us (without file io)",
-        c,
-        start_time.elapsed().as_micros()
+        c, elapsed,
     );
     println!("Answer is: {}", czero);
 }
