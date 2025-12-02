@@ -55,7 +55,8 @@ fn part_one() {
             panic!("invalid line input {}", l);
         }
         let first_char = l.chars().nth(0).unwrap();
-        let offset_str: String = l.chars().skip(1).collect();
+        // let offsetstr = &l[l.char_indices().nth(1).unwrap().0..];
+        let offset_str = &l[1..];
         let offset: i16 = offset_str.parse().unwrap();
 
         let sign: i16;
@@ -133,7 +134,7 @@ fn part_two() {
             panic!("invalid line input {}", l);
         }
         let first_char = l.chars().nth(0).unwrap();
-        let offset_str: String = l.chars().skip(1).collect();
+        let offset_str = &l[1..];
         let offset: i16 = offset_str.parse().unwrap();
 
         let sign: i16;
