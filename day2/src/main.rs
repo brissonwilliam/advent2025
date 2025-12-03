@@ -1,19 +1,42 @@
-static input: &str = "989133-1014784,6948-9419,13116184-13153273,4444385428-4444484883,26218834-26376188,224020-287235,2893-3363,86253-115248,52-70,95740856-95777521,119-147,67634135-67733879,2481098640-2481196758,615473-638856,39577-47612,9444-12729,93-105,929862406-930001931,278-360,452131-487628,350918-426256,554-694,68482544-68516256,419357748-419520625,871-1072,27700-38891,26-45,908922-976419,647064-746366,9875192107-9875208883,3320910-3352143,1-19,373-500,4232151-4423599,1852-2355,850857-889946,4943-6078,74-92,4050-4876";
+static INPUT: &str = "989133-1014784,6948-9419,13116184-13153273,4444385428-4444484883,26218834-26376188,224020-287235,2893-3363,86253-115248,52-70,95740856-95777521,119-147,67634135-67733879,2481098640-2481196758,615473-638856,39577-47612,9444-12729,93-105,929862406-930001931,278-360,452131-487628,350918-426256,554-694,68482544-68516256,419357748-419520625,871-1072,27700-38891,26-45,908922-976419,647064-746366,9875192107-9875208883,3320910-3352143,1-19,373-500,4232151-4423599,1852-2355,850857-889946,4943-6078,74-92,4050-4876";
 
-static VERBOSE: bool = true;
+static TESTINPUT: &str = "11-22,95-115,998-1012,1188511880-1188511890,222220-222224,1698522-1698528,446443-446449,38593856-38593862,565653-565659,824824821-824824827,2121212118-2121212124";
+
+static VERBOSE: bool = false;
 
 fn main() {
-    let mut answer = String::new();
+    println!("********************");
+    println!("ADVENT 2025 DAY 2");
+    println!("********************");
+
+    let input: &str;
+    let mut args = std::env::args();
+    if args.any(|a| return a == "--test") {
+        println!("using test data");
+        input = TESTINPUT;
+    } else {
+        input = INPUT;
+    }
+
+    part1(input);
+    part2(input);
+}
+
+fn part1(input: &str) {
+    let start_time = std::time::Instant::now();
+
+    let mut answer: i64 = 0;
+    let mut invalid_ids: String = String::new();
 
     for range in input.split(",") {
         let start_end = range.split_once("-").unwrap();
-        let mut start = String::from(start_end.0).parse::<i32>().unwrap();
-        let end = String::from(start_end.1).parse::<i32>().unwrap();
+        let mut start = String::from(start_end.0).parse::<i64>().unwrap();
+        let end = String::from(start_end.1).parse::<i64>().unwrap();
 
-        if end > start {
+        if start > end {
             panic!(
-                "invalid range, end must be less or eq to start at {}",
-                range
+                "PANIC: invalid range, end must be less or eq to start at {}. End: {} Start: {}",
+                range, end, start,
             );
         }
 
@@ -21,122 +44,194 @@ fn main() {
             let s = start.to_string();
             let bad_id_seq = analyze_id(&s);
             if let Some(value) = bad_id_seq {
-                answer.push_str(value);
+                invalid_ids.push_str(value);
+                invalid_ids.push('\n');
+                answer += start;
             }
             start += 1
         }
     }
 
-    println!("Anwser is \n{}\n", answer)
+    let elapsed = start_time.elapsed().as_millis();
+    println!("------------ PART 1 -----------------");
+    if VERBOSE {
+        println!("invaild ids:");
+        println!("{}", invalid_ids);
+    }
+    println!("Anwser is \n{}\n", answer);
+    println!("processing time {}ms", elapsed,);
+    println!("-------------------------------------");
 }
 
 fn analyze_id(id: &str) -> Option<&str> {
-    if id.len() < 2 {
+    // If uneven nb of characters, there's no way we have a repeating sequence of 2 so the id is valid
+    if id.len() % 2 != 0 {
         if VERBOSE {
-            println!("INPUT TOO SMALL TO PROCESS {}", id)
+            println!("valid id: uneven id len {}", id);
         }
         return None;
     }
 
-    // check each string char starting at idx 1
-    // Make sure it's equal to previous char, or following a patern (+- 1)
-    // Keep track of the last known sequence to allow things like 6969 or 420420
-    // If the latest sequence is ever different than last known one
-    // - a char doesn't match as we build it
-    // - exceeds length
-    // then naturally we don't have a repeating sequence
-    let mut seq = String::new();
-    let mut last_seq = String::new();
+    // check if it's all the same like "11111" or "88". Don't count single digit like "1"
     let mut chars = id.chars();
     let mut last_char = chars.next().unwrap();
-    seq.push(last_char);
+    let mut all_same_chars = true;
+    for c in chars {
+        if c != last_char {
+            all_same_chars = false;
+            break;
+        }
+        last_char = c
+    }
+    if all_same_chars && id.len() > 1 {
+        if VERBOSE {
+            println!("INVALID ID DETECTED: all same chars detected for {}", id);
+        }
+        return Some(id);
+    }
+
+    // Looke for repeating sequences like 123123 or 44554455
+
+    // Make sure that each half on the right side, at 'i', matches the left side
+    // For example: 1212
+    //              0123
+    // id[0] == id[2 + 0] ->  1 == 1
+    // id[1] == id[2 + 1] ->  2 == 2
+    let mut i = 0;
+    let half_idx = id.len() / 2;
+    while i < half_idx {
+        let left_char: char = id.chars().nth(i).unwrap();
+        let right_char: char = id.chars().nth(half_idx + i).unwrap();
+        if left_char != right_char {
+            if VERBOSE {
+                println!(
+                    "valid id: left and right parts of id {} at idx {} do not match. Left : {} Right : {}",
+                    id, i, left_char, right_char,
+                );
+            }
+            return None;
+        }
+        i += 1;
+    }
 
     if VERBOSE {
         println!(
-            "processing char {} | last char {} | seq {} | last seq {} | ",
-            last_char, "none", seq, last_seq
-        )
+            "INVALID ID DETECTED: left and right halves match for {}",
+            id
+        );
     }
-
-    for c in chars {
-        seq.push(c);
-
-        let is_last_char_diff = is_char_sequence_break(c, last_char);
-        if last_seq.len() > 0 {
-            // swap the sequence only if there is a previous one to swap with, we don't want 6464
-            // to break on the second char
-            if is_last_char_diff {
-                if VERBOSE {
-                    println!(
-                        "SEQUENCE BREAK DETECTED | char {} | last char {}",
-                        c, last_char
-                    )
-                }
-                // sequence break
-                last_seq = seq;
-                seq = String::new();
-            }
-
-            if seq.len() > last_seq.len() {
-                if VERBOSE {
-                    println!(
-                        "processed char {} | last char was {} | seq {} | last seq {} | SEQUENCE LONGER THAN PREVIOUS DETECTED",
-                        c, last_char, seq, last_seq
-                    )
-                }
-                return None;
-            }
-            // compare the char to previous sequence, making sure it doesn't differ
-            let idx = seq.len() - 1;
-            let compare_last_seq_char = last_seq.chars().nth(idx).unwrap();
-            if c != compare_last_seq_char {
-                if VERBOSE {
-                    println!(
-                        "processed char {} | last char was {} | seq {} | last seq {} | SEQUENCE UNEQUAL DETECTED",
-                        c, last_char, seq, last_seq
-                    )
-                }
-                return None;
-            }
-        }
-        if VERBOSE {
-            println!(
-                "processed char {} | last char was {} | seq {} | last seq {} | ",
-                c, last_char, seq, last_seq
-            )
-        }
-        last_char = c;
-    }
-
-    if last_seq.len() == 0 {
-        // No multi sequence, just 1.
-        // Just return as invalid id if it's one long sequence of the same char
-        let mut seqanalyze = seq.chars();
-        last_char = seqanalyze.next().unwrap();
-
-        for c in seq.chars() {
-            if c != last_char {
-                if VERBOSE {
-                    println!(
-                        "Single sequence {} VALID ID DETECTED | char {} | last char {}",
-                        id, c, last_char
-                    )
-                }
-                return None;
-            }
-        }
-    }
-
-    if VERBOSE {
-        println!("{} INVALID ID DETECTED", id,)
-    }
-    // seq was one full sequence, or always equal to the last one
-    // meaning we know for sure it is an invalid id
     return Some(id);
 }
 
-fn is_char_sequence_break(c: char, last_char: char) -> bool {
-    return (c as i32) > (last_char as i32) + 1 || (c as i32) < (last_char as i32) - 1;
+fn part2(input: &str) {
+    let start_time = std::time::Instant::now();
+
+    let mut answer: i64 = 0;
+    let mut invalid_ids: String = String::new();
+
+    for range in input.split(",") {
+        let start_end = range.split_once("-").unwrap();
+        let mut start = String::from(start_end.0).parse::<i64>().unwrap();
+        let end = String::from(start_end.1).parse::<i64>().unwrap();
+
+        if start > end {
+            panic!(
+                "PANIC: invalid range, end must be less or eq to start at {}. End: {} Start: {}",
+                range, end, start,
+            );
+        }
+
+        while start <= end {
+            let s = start.to_string();
+            let bad_id_seq = analyze_id_2(&s);
+            if let Some(value) = bad_id_seq {
+                invalid_ids.push_str(value);
+                invalid_ids.push('\n');
+                answer += start;
+            }
+            start += 1
+        }
+    }
+
+    let elapsed = start_time.elapsed().as_millis();
+    println!("------------ PART 2 -----------------");
+    if VERBOSE {
+        println!("invaild ids:");
+        println!("{}", invalid_ids);
+    }
+    println!("Anwser is \n{}\n", answer);
+    println!("processing time {}ms", elapsed,);
+    println!("-------------------------------------");
+}
+
+fn analyze_id_2(id: &str) -> Option<&str> {
+    // check if it's all the same like "11111" or "88". Don't count single digit like "1"
+    let mut chars = id.chars();
+    let mut last_char = chars.next().unwrap();
+    let mut all_same_chars = true;
+    for c in chars {
+        if c != last_char {
+            all_same_chars = false;
+            break;
+        }
+        last_char = c
+    }
+    if all_same_chars && id.len() > 1 {
+        if VERBOSE {
+            println!("INVALID ID DETECTED: all same chars detected for {}", id);
+        }
+        return Some(id);
+    }
+
+    // Looke for repeating sequences like 123123123 (3 sequences, 9 chars) or 44554455
+    // Start by decomposing each part of values until half of the input (because a seq of len 7
+    // would not fit in 9 chars, only lower than 5)
+    let mut sequences: Vec<&str> = Vec::new();
+    let mut i = 1; // ignore the first char, we already checked if we what the same 1 char repating
+    // N times earlier
+    while i < id.len() / 2 {
+        let seq = &id[0..i + 1]; // uper excluded, avoid 0..0 so +1
+        sequences.push(seq);
+        i += 1;
+    }
+
+    for seq in sequences {
+        // if we can't split in even parts of seq length, ignore it
+        let seqlen = seq.len();
+        if id.len() % seqlen != 0 {
+            continue;
+        }
+
+        // See if one the sequence is repeated for the entire length of id
+        let mut j = 0;
+        let potential_repeats = id.len() / seqlen;
+        while j < potential_repeats {
+            let start = j * seqlen;
+            let end = start + seqlen;
+            let part = &id[start..end];
+            if part != seq {
+                break;
+            }
+            j += 1;
+        }
+
+        if j >= potential_repeats {
+            // all sequences matched !
+            if VERBOSE {
+                println!(
+                    "INVALID ID DETECTED: repeating sequences for id: {} | seq : {}",
+                    id, seq
+                );
+            }
+            return Some(id);
+        }
+        // sequence not repeated, continue to next one
+    }
+    // Did not find any repeating seq, it is a valid id
+    if VERBOSE {
+        println!("valid id {}", id);
+    }
+    return None;
 }
 
 #[cfg(test)]
@@ -144,19 +239,47 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_analyze_id_2_returns_invalid_id() -> Result<(), String> {
+        for test in [
+            "55",
+            "6464",
+            "123123",
+            "38593859",
+            "118855118855",
+            "118855118855",
+            "451451",
+            "11",
+            "1212",
+            "9999",
+            "123123123",
+            "55555",
+            "111",
+        ] {
+            println!("-- test analyze id 2 returns invalid id {} --", test);
+            let out = match analyze_id_2(test) {
+                Some(val) => val,
+                None => panic!(
+                    "[TEST FAIL] {} should be an invalid id but was not (got None)",
+                    test
+                ),
+            };
+            assert_eq!(out, test.to_string())
+        }
+        Ok(())
+    }
+    #[test]
     fn test_analyze_id_returns_invalid_id() -> Result<(), String> {
         for test in [
             "55",
             "6464",
             "123123",
-            "123123123",
             "38593859",
             "118855118855",
             "118855118855",
+            "451451",
             "11",
             "1212",
-            "99999",
-            "9088",
+            "9999",
         ] {
             println!("-- test analyze id returns invalid id {} --", test);
             let out = match analyze_id(test) {
@@ -173,7 +296,7 @@ mod tests {
 
     #[test]
     fn test_analyze_id_returns_none() -> Result<(), String> {
-        for test in ["51", "123", "1", "9091", "9081"] {
+        for test in ["111", "9088", "51", "123", "1", "9091", "9081", "123123123"] {
             println!("-- test analyze id returns none with valid id {} --", test);
             match analyze_id(test) {
                 Some(_) => panic!(

@@ -1,1 +1,1 @@
-cargo build --release && ./target/release/day1
+cargo build --release && ./target/release/day2 
