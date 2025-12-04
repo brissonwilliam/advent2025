@@ -72,26 +72,7 @@ fn analyze_id(id: &str) -> Option<&str> {
         return None;
     }
 
-    // check if it's all the same like "11111" or "88". Don't count single digit like "1"
-    let mut chars = id.chars();
-    let mut last_char = chars.next().unwrap();
-    let mut all_same_chars = true;
-    for c in chars {
-        if c != last_char {
-            all_same_chars = false;
-            break;
-        }
-        last_char = c
-    }
-    if all_same_chars && id.len() > 1 {
-        if VERBOSE {
-            println!("INVALID ID DETECTED: all same chars detected for {}", id);
-        }
-        return Some(id);
-    }
-
     // Looke for repeating sequences like 123123 or 44554455
-
     // Make sure that each half on the right side, at 'i', matches the left side
     // For example: 1212
     //              0123
