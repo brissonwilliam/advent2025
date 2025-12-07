@@ -214,46 +214,50 @@ fn part1(input: &str) {
     println!("-------------------------------------");
 }
 
-fn part2(input: String) {
+fn part2(mut input: String) {
     let width: i32 = input.lines().nth(0).unwrap().len() as i32;
     let height = input.lines().count() as i32;
+    let byte_stride = width + 1; // plus newline
 
     let start_time = std::time::Instant::now();
 
     let mut answer = 0;
-    let mut removed_iter = 1;
-    let mut bytes = input.into_bytes();
+    let mut to_remove_c = 1;
 
-    let mut y = 0;
-    let mut x = 0;
-    while removed_iter > 0 {
-        removed_iter = 0;
-        for i in 0..bytes.len() {
-            let b = bytes[i];
-            if b == b'\n' {
-                x = 0;
-                y += 1;
-                continue;
-            }
-            if b != b'@' {
+    while to_remove_c > 0 {
+        let mut y = 0;
+        let mut to_remove: Vec<usize> = Vec::new();
+
+        for l in input.lines() {
+            let mut x = 0;
+            for c in l.chars() {
+                if c != '@' {
+                    x += 1;
+                    continue;
+                }
+                let n_neighbors = test_elem(x, y, width, height, input.as_str());
+                if VERBOSE {
+                    println!("({}, {}) has {} positive neighbors", x, y, n_neighbors)
+                }
+                if n_neighbors < 4 {
+                    if VERBOSE {
+                        println!("({}, {}) valid for removal", x, y);
+                    }
+                    let pos = (y * byte_stride + x) as usize;
+                    to_remove.push(pos);
+                }
                 x += 1;
-                continue;
             }
+            y += 1;
+        }
+        to_remove_c = to_remove.len();
+        answer += to_remove.len();
 
-            let n_neighbors = test_elem_bytes(x, y, width, height, &bytes);
-            if n_neighbors < 4 {
-                println!("({}, {}) valid for removal", x, y);
-                removed_iter += 1;
-                bytes[i] = '.' as u8;
-            }
-            x += 1;
+        let bytes = unsafe { input.as_bytes_mut() };
+        for pos in &to_remove {
+            bytes[*pos] = b'.';
         }
-        println!("iteration state");
-        for b in bytes.to_owned() {
-            print!("{}", char::from(b).to_string());
-        }
-        println!("");
-        answer += removed_iter;
+        to_remove.clear();
     }
 
     let elapsed = start_time.elapsed();
