@@ -30,7 +30,7 @@ static VERBOSE: bool = true;
 
 fn main() {
     println!("********************");
-    println!("ADVENT 2025 DAY 7");
+    println!("ADVENT 2025 DAY 8");
     println!("********************");
 
     let mut input: &str = data::INPUT;
@@ -50,26 +50,26 @@ fn main() {
     }
     input = input.trim();
 
+    println!("limit {}", limit);
+
     part1(String::from(input), limit);
 }
 
 struct Junction {
-    x: i32,
-    y: i32,
-    z: i32,
-    idx_nearest: Option<usize>,
-    distance_nearest: f64,
-    idx_circuit: Option<usize>,
+    x: i64,
+    y: i64,
+    z: i64,
+    idx_circuit: usize,
 }
 
 impl Junction {
-    fn distance_from(&self, j: &Junction) -> f64 {
-        let dx: i32 = (j.x - self.x) * (j.x - self.x);
-        let dy: i32 = (j.y - self.y) * (j.y - self.y);
-        let dz: i32 = (j.z - self.z) * (j.z - self.z);
+    fn distance_from(&self, j: &Junction) -> i64 {
+        let dx: i64 = j.x - self.x;
+        let dy: i64 = j.y - self.y;
+        let dz: i64 = j.z - self.z;
 
-        let total: i64 = (dx + dy + dz) as i64;
-        return (total as f64).sqrt();
+        let total: i64 = (dx * dx + dy * dy + dz * dz) as i64;
+        return total;
     }
 }
 
@@ -81,121 +81,147 @@ fn part1(input: String, limit: i32) {
     let start_time = std::time::Instant::now();
 
     let mut junctions = parse_intput(input);
-    let mut circuits: Vec<Circuit> = Vec::with_capacity(100);
+    let c = junctions.len();
 
-    let c = junctions.iter().count();
+    // pre-alloc circuits
+    let mut circuits: Vec<Circuit> = Vec::with_capacity(c);
 
     // Evaluate distances. This is O(n^2) but we really gotta go through everything.
-    // Prepare sorted indexes in advance for next step
-    let mut sorted_idx: Vec<usize> = Vec::with_capacity(c);
+    let mut distances: Vec<(usize, usize, i64)> = Vec::with_capacity(c); // idx_a, idx_b, distance
     for i in 0..c {
-        sorted_idx.push(i);
-        let j = junctions.iter_mut().nth(i).unwrap();
-        let mut min_d = f64::MAX;
-
-        for idx in 0..c {
-            if i == idx {
-                // do not process self, we will get 0
+        circuits.push(Circuit { count: 1 });
+        for j in i + 1..c {
+            // no need to revisit under i
+            if i == j {
                 continue;
             }
-            let distance = j.distance_from(j);
-            if distance < min_d {
-                min_d = distance;
-                j.idx_nearest = Some(idx);
-                j.distance_nearest = distance;
-            }
+            let j1 = &junctions[i];
+            let j2 = &junctions[j];
+            let distance = j1.distance_from(j2);
+            distances.push((i, j, distance));
         }
+    }
+    distances.sort_by(|a, b| a.2.cmp(&b.2));
+    if VERBOSE {
+        println!("--- sorted pairs ---");
+        for d in distances.iter() {
+            let j1 = &junctions[d.0];
+            let j2 = &junctions[d.1];
+            println!(
+                "({},{},{}) | ({},{},{}) | distance {}",
+                j1.x, j1.y, j1.z, j2.x, j2.y, j2.z, d.2,
+            )
+        }
+        println!("--------------------")
     }
 
     // Build circuits by using the smallest distances
     // A circuit holds an array of junctions
     // A junction can only be in 1 circuit at a time
     // We are asked to only look at a limited number junctions to make circuits
-
-    // We can't sort the origin vector because that would mess up idx_nearest
-    // Instead, build an vec idx of indexes
-    sorted_idx.sort_by(|a, b| {
-        let junc_a = junctions.iter().nth(a.to_owned()).unwrap();
-        let junc_b = junctions.iter().nth(b.to_owned()).unwrap();
-        return junc_a.distance_nearest.total_cmp(&junc_b.distance_nearest);
-    });
-
     let mut conn_count = 0;
-    for i in 0..c {
+    for d in distances.iter() {
+        if VERBOSE {
+            println!("**conn_count {}", conn_count);
+            for circ in circuits.iter() {
+                print!(" csize={} | ", circ.count);
+            }
+            print!("\n");
+        }
         if conn_count >= limit {
             if VERBOSE {
-                println!(
-                    "reached limit after analysing {} junctions and making {} connections",
-                    c, conn_count,
-                )
+                println!("**conn_count {} REACHED LIMIT", conn_count)
             }
             break;
         }
 
-        let idx_smallest = sorted_idx.iter().nth(i as usize).unwrap();
-        let junction = junctions.iter().nth(*idx_smallest).unwrap();
+        let j1 = &junctions[d.0];
+        let c1 = j1.idx_circuit;
+        let j2 = &junctions[d.1];
+        let c2 = j2.idx_circuit;
 
-        // Ignore if the junction was already put in a circuit before (being referenced)
-        if let Some(idx_circuit) = junction.idx_circuit {
+        // If the current junction is already in a circuit
+        // Check if we can add neighbor (if it's not set)
+        // Otherwise do nothing
+        if c1 == c2 {
             if VERBOSE {
                 println!(
-                    "skip junction {} ({},{},{}) already in circuit {}",
-                    idx_smallest, junction.x, junction.y, junction.z, idx_circuit
+                    "junction ({},{},{}) HAS CIRCUIT {}, neighbor ({},{},{}) HAS CIRCUIT {}. BOTH in same circuits (NOOP)",
+                    j1.x, j1.y, j1.z, c1, j2.x, j2.y, j2.z, c2
                 )
             }
             continue;
         }
 
-        let idx_nearest = junction.idx_nearest.unwrap();
-        let junction_nearest = junctions.iter().nth(idx_nearest).unwrap();
-
-        if VERBOSE {
-            println!(
-                "j idx {} pos ({},{},{}) refers to ({},{},{}) neighbor in circuit {}",
-                idx_smallest,
-                junction.x,
-                junction.y,
-                junction.z,
-                junction_nearest.x,
-                junction_nearest.y,
-                junction_nearest.z,
-                junction_nearest.idx_circuit.unwrap_or(9999999),
-            )
-        }
-
-        // Look at what the junction is referring to if any
-        // If the referred nearest junction is already in a circuit, simply
-        // add this one to the circuit
-        // Otherwise, make a new circuit
-        if let Some(idx_circuit) = junction_nearest.idx_circuit {
-            let circuit = circuits.iter_mut().nth(idx_circuit).unwrap();
-            circuit.count += 1;
-            junctions.iter_mut().nth(*idx_smallest).unwrap().idx_circuit = Some(idx_circuit);
-        } else {
-            let idx_circuit = circuits.iter().count();
+        if c1 != d.0 && c2 == d.1 {
             if VERBOSE {
-                println!("pushing new circuit {}", idx_circuit);
+                println!(
+                    "junction ({},{},{}) HAS CIRCUIT, neighbor ({},{},{}) NO CIRCUIT circuit. Adding it",
+                    j1.x, j1.y, j1.z, j2.x, j2.y, j2.z,
+                )
             }
-            circuits.push(Circuit { count: 2 });
-            junctions.iter_mut().nth(*idx_smallest).unwrap().idx_circuit = Some(idx_circuit);
-            junctions.iter_mut().nth(idx_nearest).unwrap().idx_circuit = Some(idx_circuit);
+            junctions[d.1].idx_circuit = c1;
+            circuits[c1].count += 1;
+            circuits[c2].count -= 1;
+            conn_count += 1;
+            continue;
         }
-        conn_count += 1;
+
+        if c1 == d.0 && c2 != d.1 {
+            if VERBOSE {
+                println!(
+                    "junction ({},{},{}) NO CIRCUIT , neighbor ({},{},{}) HAS circuit. Adding it",
+                    j1.x, j1.y, j1.z, j2.x, j2.y, j2.z,
+                )
+            }
+            junctions[d.0].idx_circuit = c2;
+            circuits[c2].count += 1;
+            circuits[c1].count -= 1;
+            conn_count += 1;
+            continue;
+        }
+
+        // Both junctions without circuit / are own their own. Merge them
+        if c1 == d.0 && c2 == d.1 {
+            if VERBOSE {
+                println!(
+                    "junction ({},{},{}) NO CIRCUIT, neighbor ({},{},{}) NO CIRCUIT. MERGE INTO {}",
+                    j1.x, j1.y, j1.z, j2.x, j2.y, j2.z, c1
+                )
+            }
+
+            junctions[d.1].idx_circuit = c1;
+            circuits[c1].count += 1;
+            circuits[c2].count -= 1;
+            conn_count += 1;
+            continue;
+        }
+
+        panic!("undefined pair processing");
     }
 
     // At last! Get the top 3 circuits to make the response
-    circuits.sort_by(|a, b| return a.count.cmp(&b.count));
+    circuits.sort_by(|a, b| return a.count.cmp(&b.count).reverse());
 
     if VERBOSE {
-        println!("made {} circuits in total", circuits.iter().count());
+        println!("made {} circuits in total", circuits.len());
+        for i in 0..circuits.len() {
+            let circuit = &circuits[i];
+            if circuit.count == 0 {
+                break;
+            }
+            if VERBOSE {
+                println!("circuit {} has {}", i, circuit.count)
+            }
+        }
     }
 
     let mut answer = 1;
-    for i in 0..3 {
-        let circuit = circuits.iter().nth(i).unwrap();
-        if VERBOSE {
-            println!("circuit {} has {}", i, circuit.count)
+    for i in 0..circuits.len() {
+        if i == 3 {
+            break;
         }
+        let circuit = &circuits[i];
         answer *= circuit.count;
     }
 
@@ -208,17 +234,17 @@ fn part1(input: String, limit: i32) {
 
 fn parse_intput(input: String) -> Vec<Junction> {
     let mut junctions: Vec<Junction> = Vec::with_capacity(1000);
+    let mut i = 0;
     for l in input.lines() {
         let mut vals = l.split(",");
         let j = Junction {
             x: vals.next().unwrap().parse().unwrap(),
             y: vals.next().unwrap().parse().unwrap(),
             z: vals.next().unwrap().parse().unwrap(),
-            idx_nearest: None,
-            distance_nearest: 0.0,
-            idx_circuit: None,
+            idx_circuit: i,
         };
         junctions.push(j);
+        i += 1;
     }
     return junctions;
 }
