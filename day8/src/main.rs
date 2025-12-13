@@ -1,3 +1,4 @@
+use std::collections;
 mod data;
 
 static TESTINPUT: &str = "
@@ -59,7 +60,7 @@ struct Junction {
     x: i64,
     y: i64,
     z: i64,
-    idx_circuit: usize,
+    idx_circuit: Option<usize>,
 }
 
 impl Junction {
@@ -73,23 +74,15 @@ impl Junction {
     }
 }
 
-struct Circuit {
-    count: i32,
-}
-
 fn part1(input: String, limit: i32) {
     let start_time = std::time::Instant::now();
 
-    let mut junctions = parse_intput(input);
+    let junctions = parse_intput(input);
     let c = junctions.len();
-
-    // pre-alloc circuits
-    let mut circuits: Vec<Circuit> = Vec::with_capacity(c);
 
     // Evaluate distances. This is O(n^2) but we really gotta go through everything.
     let mut distances: Vec<(usize, usize, i64)> = Vec::with_capacity(c); // idx_a, idx_b, distance
     for i in 0..c {
-        circuits.push(Circuit { count: 1 });
         for j in i + 1..c {
             // no need to revisit under i
             if i == j {
@@ -119,12 +112,13 @@ fn part1(input: String, limit: i32) {
     // A circuit holds an array of junctions
     // A junction can only be in 1 circuit at a time
     // We are asked to only look at a limited number junctions to make circuits
+    let mut circuits: Vec<collections::HashSet<usize>> = Vec::new();
     let mut conn_count = 0;
     for d in distances.iter() {
         if VERBOSE {
             println!("**conn_count {}", conn_count);
             for circ in circuits.iter() {
-                print!(" csize={} | ", circ.count);
+                print!(" csize={} | ", circ.len());
             }
             print!("\n");
         }
@@ -135,64 +129,118 @@ fn part1(input: String, limit: i32) {
             break;
         }
 
-        let j1 = &junctions[d.0];
-        let c1 = j1.idx_circuit;
-        let j2 = &junctions[d.1];
-        let c2 = j2.idx_circuit;
+        let mut c1: Option<usize> = None;
+        let mut c2: Option<usize> = None;
+        for i in 0..circuits.len() {
+            if circuits[i].contains(&d.0) {
+                c1 = Some(i);
+                break;
+            }
+        }
+        for i in 0..circuits.len() {
+            if circuits[i].contains(&d.1) {
+                c2 = Some(i);
+                break;
+            }
+        }
 
         // If the current junction is already in a circuit
         // Check if we can add neighbor (if it's not set)
         // Otherwise do nothing
-        if c1 == c2 {
+        if let Some(c1) = c1
+            && let Some(c2) = c2
+        {
+            if c1 == c2 {
+                if VERBOSE {
+                    let j1 = &junctions[d.0];
+                    let j2 = &junctions[d.1];
+                    println!(
+                        "junction ({},{},{}) neighbor ({},{},{})  BOTH in same circuits (NOOP)",
+                        j1.x, j1.y, j1.z, j2.x, j2.y, j2.z
+                    )
+                }
+                conn_count += 1;
+                continue;
+            }
+            // merge the 2 circuits, clearing the old one
+            // Only way I found to make the borrow checker stfu
+            // but this is just moving elements from circuit 2 to circuit 1
             if VERBOSE {
+                let j1 = &junctions[d.0];
+                let j2 = &junctions[d.1];
                 println!(
-                    "junction ({},{},{}) HAS CIRCUIT {}, neighbor ({},{},{}) HAS CIRCUIT {}. BOTH in same circuits (NOOP)",
-                    j1.x, j1.y, j1.z, c1, j2.x, j2.y, j2.z, c2
+                    "junction ({},{},{}) neighbor ({},{},{}) BOTH different sets of circuit. MERGING BIG CCIRCUITS ",
+                    j1.x, j1.y, j1.z, j2.x, j2.y, j2.z
                 )
             }
+            if c1 < c2 {
+                let (left, right) = circuits.split_at_mut(c2);
+                for val in right[0].drain() {
+                    left[c1].insert(val);
+                }
+            } else {
+                let (left, right) = circuits.split_at_mut(c1);
+                for val in left[c2].drain() {
+                    right[0].insert(val);
+                }
+            }
+            circuits[c2].clear();
+            conn_count += 1;
             continue;
         }
 
-        if c1 != d.0 && c2 == d.1 {
+        // always re assign? not sure if this is what the context of the problem expects
+        // but if c1 == c2 override whatever j2 has, plug it in to its pair
+        if let Some(c1) = c1
+            && let None = c2
+        {
             if VERBOSE {
+                let j1 = &junctions[d.0];
+                let j2 = &junctions[d.1];
                 println!(
                     "junction ({},{},{}) HAS CIRCUIT, neighbor ({},{},{}) NO CIRCUIT circuit. Adding it",
                     j1.x, j1.y, j1.z, j2.x, j2.y, j2.z,
                 )
             }
-            junctions[d.1].idx_circuit = c1;
-            circuits[c1].count += 1;
-            circuits[c2].count -= 1;
+            circuits[c1].insert(d.1);
             conn_count += 1;
             continue;
         }
 
-        if c1 == d.0 && c2 != d.1 {
+        if let None = c1
+            && let Some(c2) = c2
+        {
             if VERBOSE {
+                let j1 = &junctions[d.0];
+                let j2 = &junctions[d.1];
                 println!(
                     "junction ({},{},{}) NO CIRCUIT , neighbor ({},{},{}) HAS circuit. Adding it",
                     j1.x, j1.y, j1.z, j2.x, j2.y, j2.z,
                 )
             }
-            junctions[d.0].idx_circuit = c2;
-            circuits[c2].count += 1;
-            circuits[c1].count -= 1;
+            circuits[c2].insert(d.0);
             conn_count += 1;
             continue;
         }
 
         // Both junctions without circuit / are own their own. Merge them
-        if c1 == d.0 && c2 == d.1 {
+        if let None = c1
+            && let None = c2
+        {
+            let mut new_circuit = collections::HashSet::new();
+            new_circuit.insert(d.0);
+            new_circuit.insert(d.1);
+            circuits.push(new_circuit);
+
             if VERBOSE {
+                let j1 = &junctions[d.0];
+                let j2 = &junctions[d.1];
                 println!(
-                    "junction ({},{},{}) NO CIRCUIT, neighbor ({},{},{}) NO CIRCUIT. MERGE INTO {}",
-                    j1.x, j1.y, j1.z, j2.x, j2.y, j2.z, c1
+                    "junction ({},{},{}) NO CIRCUIT, neighbor ({},{},{}) NO CIRCUIT. MAKE NEW CIRCUIT",
+                    j1.x, j1.y, j1.z, j2.x, j2.y, j2.z
                 )
             }
 
-            junctions[d.1].idx_circuit = c1;
-            circuits[c1].count += 1;
-            circuits[c2].count -= 1;
             conn_count += 1;
             continue;
         }
@@ -201,17 +249,17 @@ fn part1(input: String, limit: i32) {
     }
 
     // At last! Get the top 3 circuits to make the response
-    circuits.sort_by(|a, b| return a.count.cmp(&b.count).reverse());
+    circuits.sort_by(|a, b| return a.len().cmp(&b.len()).reverse());
 
     if VERBOSE {
         println!("made {} circuits in total", circuits.len());
         for i in 0..circuits.len() {
             let circuit = &circuits[i];
-            if circuit.count == 0 {
+            if circuit.len() == 0 {
                 break;
             }
             if VERBOSE {
-                println!("circuit {} has {}", i, circuit.count)
+                println!("circuit {} has {}", i, circuit.len())
             }
         }
     }
@@ -222,7 +270,7 @@ fn part1(input: String, limit: i32) {
             break;
         }
         let circuit = &circuits[i];
-        answer *= circuit.count;
+        answer *= circuit.len();
     }
 
     let elapsed = start_time.elapsed();
@@ -241,7 +289,7 @@ fn parse_intput(input: String) -> Vec<Junction> {
             x: vals.next().unwrap().parse().unwrap(),
             y: vals.next().unwrap().parse().unwrap(),
             z: vals.next().unwrap().parse().unwrap(),
-            idx_circuit: i,
+            idx_circuit: None,
         };
         junctions.push(j);
         i += 1;
