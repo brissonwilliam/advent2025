@@ -27,7 +27,7 @@ static TESTINPUT: &str = "
 static TESTINPUT2: &str = "
 ";
 
-static VERBOSE: bool = true;
+static VERBOSE: bool = false;
 
 fn main() {
     println!("********************");
@@ -54,13 +54,13 @@ fn main() {
     println!("limit {}", limit);
 
     part1(String::from(input), limit);
+    part2(String::from(input));
 }
 
 struct Junction {
     x: i64,
     y: i64,
     z: i64,
-    idx_circuit: Option<usize>,
 }
 
 impl Junction {
@@ -78,9 +78,68 @@ fn part1(input: String, limit: i32) {
     let start_time = std::time::Instant::now();
 
     let junctions = parse_intput(input);
-    let c = junctions.len();
+    let distances = evaluate_distances(&junctions);
+    let circuits = connect_junctions(&junctions, &distances, limit);
 
-    // Evaluate distances. This is O(n^2) but we really gotta go through everything.
+    let mut answer = 1;
+    for i in 0..circuits.len() {
+        if i == 3 {
+            break;
+        }
+        let circuit = &circuits[i];
+        answer *= circuit.len();
+    }
+
+    let elapsed = start_time.elapsed();
+    println!("------------ PART 2 -----------------");
+    println!("Anwser is \n{}\n", answer);
+    println!("processing time {}us", elapsed.as_micros());
+    println!("-------------------------------------");
+}
+
+fn part2(input: String) {
+    let start_time = std::time::Instant::now();
+
+    let junctions = parse_intput(input);
+    let distances = evaluate_distances(&junctions);
+    let limit = distances.len() as i32;
+    let circuits = connect_junctions(&junctions, &distances, limit);
+
+    let ld = LAST_DISTANCE.take();
+    let j1 = &junctions[ld.0];
+    let j2 = &junctions[ld.1];
+    if VERBOSE {
+        println!(
+            "last distance is ({},{},{}), ({},{},{})",
+            j1.x, j1.y, j1.z, j2.x, j2.y, j2.z
+        )
+    }
+    let answer = j1.x * j2.x;
+
+    let elapsed = start_time.elapsed();
+    println!("------------ PART 2 -----------------");
+    println!("Anwser is \n{}\n", answer);
+    println!("processing time {}us", elapsed.as_micros());
+    println!("-------------------------------------");
+}
+
+fn parse_intput(input: String) -> Vec<Junction> {
+    let mut junctions: Vec<Junction> = Vec::with_capacity(1000);
+    for l in input.lines() {
+        let mut vals = l.split(",");
+        let j = Junction {
+            x: vals.next().unwrap().parse().unwrap(),
+            y: vals.next().unwrap().parse().unwrap(),
+            z: vals.next().unwrap().parse().unwrap(),
+        };
+        junctions.push(j);
+    }
+    return junctions;
+}
+
+// Evaluate distances. This is O(n^2) but we really gotta go through everything.
+fn evaluate_distances(junctions: &Vec<Junction>) -> Vec<(usize, usize, i64)> {
+    let c = junctions.len();
     let mut distances: Vec<(usize, usize, i64)> = Vec::with_capacity(c); // idx_a, idx_b, distance
     for i in 0..c {
         for j in i + 1..c {
@@ -107,16 +166,31 @@ fn part1(input: String, limit: i32) {
         }
         println!("--------------------")
     }
+    return distances;
+}
 
+use std::cell::RefCell;
+
+thread_local! {
+    static LAST_DISTANCE: RefCell<(usize, usize, i64)> = RefCell::new((0, 0, 0));
+}
+
+fn connect_junctions(
+    junctions: &Vec<Junction>,
+    distances: &Vec<(usize, usize, i64)>,
+    limit: i32,
+) -> Vec<collections::HashSet<usize>> {
     // Build circuits by using the smallest distances
     // A circuit holds an array of junctions
     // A junction can only be in 1 circuit at a time
     // We are asked to only look at a limited number junctions to make circuits
+    let mut deleted = 0;
+    let stop_at = junctions.len() - 1;
     let mut circuits: Vec<collections::HashSet<usize>> = Vec::new();
     let mut conn_count = 0;
     for d in distances.iter() {
         if VERBOSE {
-            println!("**conn_count {}", conn_count);
+            println!("**conn_count {}, deleted {}", conn_count, deleted);
             for circ in circuits.iter() {
                 print!(" csize={} | ", circ.len());
             }
@@ -128,6 +202,14 @@ fn part1(input: String, limit: i32) {
             }
             break;
         }
+        if deleted >= stop_at {
+            if VERBOSE {
+                println!("**all circuits merged to 1, stop processing")
+            }
+            break;
+        }
+
+        LAST_DISTANCE.with(|var| *var.borrow_mut() = d.clone());
 
         let mut c1: Option<usize> = None;
         let mut c2: Option<usize> = None;
@@ -144,6 +226,9 @@ fn part1(input: String, limit: i32) {
             }
         }
 
+        conn_count += 1; // every distance treated counts as a connection, even when 2 junctions
+        // are in the same circuit (somehow)
+
         // If the current junction is already in a circuit
         // Check if we can add neighbor (if it's not set)
         // Otherwise do nothing
@@ -159,7 +244,6 @@ fn part1(input: String, limit: i32) {
                         j1.x, j1.y, j1.z, j2.x, j2.y, j2.z
                     )
                 }
-                conn_count += 1;
                 continue;
             }
             // merge the 2 circuits, clearing the old one
@@ -185,7 +269,7 @@ fn part1(input: String, limit: i32) {
                 }
             }
             circuits[c2].clear();
-            conn_count += 1;
+            deleted += 1;
             continue;
         }
 
@@ -203,7 +287,7 @@ fn part1(input: String, limit: i32) {
                 )
             }
             circuits[c1].insert(d.1);
-            conn_count += 1;
+            deleted += 1;
             continue;
         }
 
@@ -220,6 +304,7 @@ fn part1(input: String, limit: i32) {
             }
             circuits[c2].insert(d.0);
             conn_count += 1;
+            deleted += 1;
             continue;
         }
 
@@ -241,7 +326,7 @@ fn part1(input: String, limit: i32) {
                 )
             }
 
-            conn_count += 1;
+            deleted += 1;
             continue;
         }
 
@@ -264,35 +349,5 @@ fn part1(input: String, limit: i32) {
         }
     }
 
-    let mut answer = 1;
-    for i in 0..circuits.len() {
-        if i == 3 {
-            break;
-        }
-        let circuit = &circuits[i];
-        answer *= circuit.len();
-    }
-
-    let elapsed = start_time.elapsed();
-    println!("------------ PART 1 -----------------");
-    println!("Anwser is \n{}\n", answer);
-    println!("processing time {}us", elapsed.as_micros());
-    println!("-------------------------------------");
-}
-
-fn parse_intput(input: String) -> Vec<Junction> {
-    let mut junctions: Vec<Junction> = Vec::with_capacity(1000);
-    let mut i = 0;
-    for l in input.lines() {
-        let mut vals = l.split(",");
-        let j = Junction {
-            x: vals.next().unwrap().parse().unwrap(),
-            y: vals.next().unwrap().parse().unwrap(),
-            z: vals.next().unwrap().parse().unwrap(),
-            idx_circuit: None,
-        };
-        junctions.push(j);
-        i += 1;
-    }
-    return junctions;
+    return circuits;
 }
