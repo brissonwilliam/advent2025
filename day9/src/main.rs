@@ -14,6 +14,18 @@ static TESTINPUT: &str = "
 ";
 
 static TESTINPUT2: &str = "
+7,1
+11,1
+11,7
+9,7
+9,5
+5,5
+5,7
+3,7
+3,5
+2,5
+2,3
+7,3
 ";
 
 static VERBOSE: bool = true;
@@ -85,294 +97,446 @@ fn part1(input: String) {
     println!("-------------------------------------");
 }
 
-struct MinMax {
-    min: usize,
-    max: usize,
-}
-impl std::fmt::Display for MinMax {
-    // This trait requires the `fmt` method with this exact signature.
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        // Use the `write!` macro to write the formatted output to the formatter `f`.
-        write!(f, "(min {}, max {})", self.min, self.max)
-    }
+#[derive(Clone, Hash, Eq, PartialEq)]
+struct Point {
+    x: usize,
+    y: usize,
 }
 
-struct IdxRange {
-    index: HashMap<usize, Vec<MinMax>>,
+struct Edge {
+    start: Point,
+    end: Point,
+    lenx: i32,
+    leny: i32,
 }
 
-impl IdxRange {
-    fn add_range(&mut self, key: usize, mut start: usize, mut end: usize) {
-        if start > end {
-            let tmp = start;
-            start = end;
-            end = tmp;
+fn new_edge(start: &mut Point, end: &mut Point) -> Edge {
+    if start.y == end.y {
+        if end.x < start.x {
+            let tmp = start.x;
+            start.x = end.x;
+            end.x = tmp;
         }
-
-        if let None = self.index.get(&key) {
-            let mut newvec: Vec<MinMax> = Vec::new();
-            newvec.push(MinMax {
-                min: start,
-                max: end,
-            });
-            self.index.insert(key, newvec);
+    } else if start.x == end.x {
+        if end.y < start.y {
+            let tmp = start.y;
+            start.y = end.y;
+            end.y = tmp;
         }
-
-        // append to existing range if possible
-        let c = self.index[&key].len();
-        for i in 0..c {
-            let r = self.index.get_mut(&key).unwrap();
-
-            if end < r[i].min || start > r[i].max {
-                continue;
-            }
-
-            // expand left
-            if start < r[i].min {
-                r.get_mut(i).unwrap().min = start;
-            }
-            if end > r[i].max {
-                // expand right
-                r.get_mut(i).unwrap().max = end;
-            }
-
-            // updated by extending
-            return;
-        }
-
-        self.index.get_mut(&key).unwrap().push(MinMax {
-            min: start,
-            max: end,
-        });
     }
 
-    fn is_inrange(&self, key: usize, val: usize) -> bool {
-        if let None = self.index.get(&key) {
-            return false;
-        }
-        // technically means is touching an edge so we know it's valid / inside / 1 edge only
-        for r in &self.index[&key] {
-            if val >= r.min && val <= r.max {
-                return true;
-            }
-        }
-        return false;
-    }
-
+    return Edge {
+        start: start.to_owned(),
+        end: end.to_owned(),
+        lenx: (end.x as i32 - start.x as i32),
+        leny: (end.y as i32 - start.y as i32),
+    };
 }
 
-fn is_inbounds(
-    red_cols: &IdxRange,
-    red_rows: &IdxRange,
-    pos: (usize, usize),
-    cache: &mut HashMap<(usize, usize), bool>,
-) -> bool {
-    if let Some(cached_val) = cache.get(&pos) {
-        return *cached_val;
-    }
-    // count the number of edges hit on the perimeter
-    if red_rows.is_inrange(pos.1, pos.0) || red_cols.is_inrange(pos.0, pos.1) {
-        if VERBOSE {
-            println!(
-                "test ({},{}) is in bounds TRUE (by direct hit)",
-                pos.0, pos.1
-            )
-        }
-        cache.insert(pos, true);
-        return true;
-    }
-
-    let edges = red_rows.raycast_ranges_to_zero(pos.1, pos.0)
-        + red_cols.raycast_ranges_to_zero(pos.0, pos.1);
-    let res = edges % 2 > 0;
-    if VERBOSE {
-        println!(
-            "test ({},{}) is in bounds {} (by raycast count {})",
-            pos.0, pos.1, res, edges
-        )
-    }
-    cache.insert(pos, res);
-    return res;
+fn parse_line(l: &str) -> Point {
+    let mut s = l.split(",");
+    let x: usize = s.next().unwrap().parse().unwrap();
+    let y: usize = s.next().unwrap().parse().unwrap();
+    return Point { x, y };
 }
 
 fn part2(input: String) {
     let start_time = std::time::Instant::now();
 
-    let mut reds: Vec<(usize, usize)> = Vec::new();
+    let mut reds: Vec<Point> = Vec::new();
+    let mut edges: Vec<Edge> = Vec::new();
     let mut width = 0;
     let mut height = 0;
-    for l in input.lines() {
-        let mut s = l.split(",");
-        let x: usize = s.next().unwrap().parse().unwrap();
-        let y: usize = s.next().unwrap().parse().unwrap();
-        if x > width {
-            width = x + 1;
+    let mut i = 0;
+    let lines = input.lines().count();
+    let mut last_point = parse_line(input.lines().nth(lines - 1).unwrap());
+    while i < lines {
+        let l = input.lines().nth(i).unwrap();
+        let end = parse_line(l);
+        if end.x > width {
+            width = end.x + 1;
         }
-        if y > height {
-            height = y + 1;
+        if end.y > height {
+            height = end.y + 1;
         }
 
-        reds.push((x, y));
+        reds.push(end.clone());
+        edges.push(new_edge(&mut last_point, &mut end.clone()));
+        last_point = end;
+
+        i += 1;
     }
 
-    // Find min max of rows
+    if VERBOSE && width < 100 {
+        print_state(&edges, width, height);
+    }
+
+    // Check the areas within bounds
+    let mut cache: HashMap<Point, bool> = HashMap::new();
+    struct Candidate {
+        a: Point,
+        b: Point,
+        area: i64,
+    }
+    let mut candidates: Vec<Candidate> = Vec::new();
     let c = reds.len();
-    let mut red_rows = IdxRange {
-        index: HashMap::new(),
-    };
-    let mut red_cols = IdxRange {
-        index: HashMap::new(),
-    };
-
-    for i in 0..c {
-        let x = reds[i].0;
-        let y = reds[i].1;
-
-        if VERBOSE {
-            println!("processing {},{}", x, y);
-        }
-
-        // peek the next to link and trace next path
-        let mut next_idx = i + 1;
-        if next_idx >= c {
-            next_idx = 0; // connect back to begining
-        }
-        let next = &reds[next_idx];
-        let next_x = next.0;
-        let next_y = next.1;
-
-        // green tiles going horizontaly on x
-        let dx = next_x as i32 - x as i32;
-        if next_y == y && dx != 0 {
-            // add_range will take care of reversing order if dx < 0
-            red_rows.add_range(y, x, next_x);
-            continue;
-        }
-        // green tiles going vertically on x
-        let dy = next_y as i32 - y as i32;
-        if next_x == x && dy != 0 {
-            // add_range will take care of reversing order if dx < 0
-            red_cols.add_range(x, y, next_y);
-            continue;
-        }
-    }
-
-    if VERBOSE && c < 100 {
-        // Debug print
-        let mut state: Vec<Vec<i8>> = Vec::with_capacity(height);
-        for _ in 0..height {
-            let mut row: Vec<i8> = Vec::with_capacity(width);
-            for _ in 0..width {
-                row.push(0);
-            }
-            state.push(row);
-        }
-
-        for (y, ranges) in red_rows.index.iter() {
-            for r in ranges.iter() {
-                for x in r.min..r.max + 1 {
-                    state[*y][x] = 1
-                }
-            }
-        }
-        for (x, ranges) in red_cols.index.iter() {
-            for r in ranges.iter() {
-                for y in r.min..r.max + 1 {
-                    state[y][*x] = 1
-                }
-            }
-        }
-
-        println!("\nstate:");
-        for y in 0..height {
-            for x in 0..width {
-                print!("{}", state[y][x]);
-            }
-            print!("\n");
-        }
-    }
-
-    if VERBOSE {
-        println!("\nred idx by row");
-        for (row, ranges) in red_rows.index.iter() {
-            for r in ranges {
-                println!("row {} | range {} {}", row, r.min, r.max);
-            }
-        }
-        println!("\nred idx by col");
-        for (col, ranges) in red_cols.index.iter() {
-            for r in ranges {
-                println!("col {} | range {} {}", col, r.min, r.max);
-            }
-        }
-        println!("");
-    }
-
-    // Check the areas withing bounds
-    let mut max_area: i64 = 0;
-    let mut max_a: (usize, usize) = (0, 0);
-    let mut max_b: (usize, usize) = (0, 0);
-    let mut cache: HashMap<(usize, usize), bool> = HashMap::new();
 
     for i in 0..c {
         let a = &reds[i];
+        // Quick test to exclude out of bounds of poly rectangle
         for j in i + 1..c {
             let b = &reds[j];
 
-            let mut minx = a.0;
-            let mut maxx = b.0;
-            if minx > maxx {
-                minx = b.0;
-                maxx = a.0;
-            }
-
-            let mut miny = a.1;
-            let mut maxy = b.1;
-            if miny > maxy {
-                miny = b.1;
-                maxy = a.1;
-            }
-
-            // Check all 4 corners are withing polygon
-            if !is_inbounds(&red_cols, &red_rows, (minx, miny), &mut cache) {
-                continue;
-            }
-            if !is_inbounds(&red_cols, &red_rows, (minx, maxy), &mut cache) {
-                continue;
-            }
-            if !is_inbounds(&red_cols, &red_rows, (maxx, miny), &mut cache) {
-                continue;
-            }
-            if !is_inbounds(&red_cols, &red_rows, (maxx, maxy), &mut cache) {
+            if !is_valid_rec(a, b, &edges, &mut cache) {
                 continue;
             }
 
-            let width = (a.0 as i64 - b.0 as i64).abs() + 1;
-            let height = (a.1 as i64 - b.1 as i64).abs() + 1;
-            let mut area: i64 = width * height;
+            let width = (a.x as i32 - b.x as i32).abs() + 1;
+            let height = (a.y as i32 - b.y as i32).abs() + 1;
+            let mut area: i64 = width as i64 * height as i64;
             if area < 0 {
                 area *= -1;
             }
-            if area > max_area {
-                if VERBOSE {
-                    println!(
-                        "overriding area with ({},{}) ({},{}) | w={} h={} area={}",
-                        a.0, a.1, b.0, b.1, width, height, area
-                    )
+
+            candidates.push(Candidate {
+                a: a.clone(),
+                b: b.clone(),
+                area,
+            });
+        }
+    }
+
+    // sort candidates by area descending
+    // stop as soon as we find one
+    candidates.sort_by(|a, b| return a.area.cmp(&b.area).reverse());
+    let answer = candidates.first().unwrap();
+
+    let elapsed = start_time.elapsed();
+    println!("------------ PART 2 -----------------");
+    if VERBOSE && width < 100 {
+        print_state(&edges, width, height);
+    }
+    // not 16300900
+    // not 4730060646
+    // should be 14398...
+    println!(
+        "Anwser is \n{}\n at ({},{}) -> ({},{})",
+        answer.area, answer.a.x, answer.a.y, answer.b.x, answer.b.y
+    );
+    println!("processing time {}ms", elapsed.as_millis());
+    println!("-------------------------------------");
+}
+
+fn is_valid_rec(a: &Point, b: &Point, edges: &Vec<Edge>, cache: &mut HashMap<Point, bool>) -> bool {
+    let mut minx = a.x;
+    let mut maxx = b.x;
+    if minx > maxx {
+        minx = b.x;
+        maxx = a.x;
+    }
+
+    let mut miny = a.y;
+    let mut maxy = b.y;
+    if miny > maxy {
+        miny = b.y;
+        maxy = a.y;
+    }
+
+    // Check all 4 corners are within polygon
+    let corners: [Point; 4] = [
+        Point { x: minx, y: miny },
+        Point { x: minx, y: maxy },
+        Point { x: maxx, y: miny },
+        Point { x: maxx, y: maxy },
+    ];
+    for c in corners {
+        // check cache
+        if let Some(cached_val) = cache.get(&c) {
+            if *cached_val {
+                continue;
+            }
+            return false;
+        }
+
+        let is_within_poly = corner_is_in_poly(&c, edges);
+        cache.insert(c, is_within_poly);
+        if !is_within_poly {
+            // stop processing this rectangle corners
+            return false;
+        }
+        // continue testing other corners
+    }
+
+    /*
+    // Now validate each point in perimeter of the rectangle.
+    // This is to avoid shapes like these
+    // where the obbtom would be caught from 3,5 to 11,7
+    // 000000000000
+    // 000000011111
+    // 000000010001
+    // 001111110001
+    // 001000000001
+    // 001+01111101
+    // 000101---101
+    // 000111---11+
+    //       |||
+    //       bad
+    for y in [miny, maxy] {
+        for x in minx..maxx + 1 {
+            let pos = Point { x, y };
+            // check cache
+            if let Some(cached_val) = cache.get(&pos) {
+                if *cached_val {
+                    continue;
                 }
-                max_a = (a.0, a.1);
-                max_b = (b.0, b.1);
-                max_area = area;
+                return false;
+            }
+
+            let is_within_poly = corner_is_in_poly(&pos, edges);
+            cache.insert(pos, is_within_poly);
+            if !is_within_poly {
+                // stop processing this rectangle corners
+                return false;
             }
         }
     }
 
-    let elapsed = start_time.elapsed();
-    println!("------------ PART 2 -----------------");
-    println!(
-        "Anwser is \n{}\n at ({},{}) -> ({},{})",
-        max_area, max_a.0, max_a.1, max_b.0, max_b.1
-    );
-    println!("processing time {}ms", elapsed.as_millis());
-    println!("-------------------------------------");
+    for x in [minx, maxx] {
+        for y in miny..maxy + 1 {
+            let pos = Point { x, y };
+            // check cache
+            if let Some(cached_val) = cache.get(&pos) {
+                if *cached_val {
+                    continue;
+                }
+                return false;
+            }
+
+            let is_within_poly = corner_is_in_poly(&pos, edges);
+            cache.insert(pos, is_within_poly);
+            if !is_within_poly {
+                // stop processing this rectangle corners
+                return false;
+            }
+        }
+    }
+    */
+
+    return true;
+}
+
+fn corner_is_in_poly(c: &Point, edges: &Vec<Edge>) -> bool {
+    // check if within y range
+    let mut hits = 0;
+    for e in edges.iter() {
+        // If we are at a corner already,
+        // computing hits will cause issues
+        // Example of 3 edges, would result in 3 hits
+        // .X##.
+        // .#.#
+        // Just exit early we don,t need to test other edges
+        /*
+        if *c == e.start || *c == e.end {
+            if VERBOSE {
+                println!("corner ({},{}) in poly ({})", c.x, c.y, true)
+            }
+            return true;
+        }
+        */
+        let within_y = c.y >= e.start.y && c.y <= e.end.y;
+        let within_x = c.x >= e.start.x && c.x <= e.end.x;
+
+        // Avoid division by zero
+        // If is on an edge, don't ray cast to avoid cases like this
+        // where 2 edges would be hit (but is inside)
+        // .##X##
+        // .#...#
+        if e.leny == 0 && c.y == e.start.y && within_x {
+            if VERBOSE {
+                println!(
+                    "corner ({},{}) in poly (true) after flat y within x of edge ({},{})({},{})",
+                    c.x, c.y, e.start.x, e.start.y, e.end.x, e.end.y
+                );
+            }
+            return true;
+        }
+
+        if e.lenx == 0 && c.x == e.start.x && within_y {
+            if VERBOSE {
+                println!(
+                    "corner ({},{}) in poly (true) after flat x within y of edge ({},{})({},{})",
+                    c.x, c.y, e.start.x, e.start.y, e.end.x, e.end.y
+                );
+            }
+            return true;
+        }
+
+        // Do not test edge on x if we're not within y
+        if !within_y {
+            continue;
+        }
+
+        // Last way to compute: raycast on x
+        // uses a equation derivate of y(p) = mx + b to test if point intersects the line
+        // https://www.youtube.com/watch?v=TA8XQgiao4M
+        let m = e.leny as f32 / e.lenx as f32;
+        let intersect_x = (c.y - e.start.y) as f32 / m + e.start.x as f32;
+        // let intersect_y = p.y; // always true, we tested earlier
+
+        // Since we know we're within y, if the point is on the left of the intersection
+        // we know it would hit the edge by casting a ray to the right
+        let intersects = (c.x as f32) <= intersect_x;
+        if intersects {
+            hits += 1;
+        }
+    }
+
+    let is_within_poly = hits % 2 != 0;
+    if VERBOSE {
+        println!(
+            "corner ({},{}) in poly ({}) after {} hits",
+            c.x, c.y, is_within_poly, hits
+        );
+    }
+
+    return is_within_poly;
+}
+
+fn print_state(edges: &Vec<Edge>, width: usize, height: usize) {
+    // Debug print
+    let mut state: Vec<Vec<i8>> = Vec::with_capacity(height as usize);
+    for _ in 0..height {
+        let mut row: Vec<i8> = Vec::with_capacity(width as usize);
+        for _ in 0..width {
+            row.push(0);
+        }
+        state.push(row);
+    }
+
+    for e in edges.iter() {
+        println!(
+            "edge ({},{}) - ({},{})",
+            e.start.x, e.start.y, e.end.x, e.end.y
+        );
+        if e.start.y == e.end.y {
+            for x in e.start.x..e.end.x + 1 {
+                state[e.start.y][x] = 1;
+            }
+        } else if e.start.x == e.end.x {
+            for y in e.start.y..e.end.y + 1 {
+                state[y][e.start.x] = 1;
+            }
+        }
+    }
+
+    println!("\nstate:");
+    for y in 0..height {
+        for x in 0..width {
+            print!("{}", state[y][x]);
+        }
+        print!("\n");
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_positions_inside_poly() -> Result<(), String> {
+        let input = TESTINPUT2.trim();
+        let mut reds: Vec<Point> = Vec::new();
+        let mut edges: Vec<Edge> = Vec::new();
+        let mut width = 0;
+        let mut height = 0;
+        let mut i = 0;
+        let lines = input.lines().count();
+        let mut last_point = parse_line(input.lines().nth(lines - 1).unwrap());
+        while i < lines {
+            let l = input.lines().nth(i).unwrap();
+            let end = parse_line(l);
+            if end.x > width {
+                width = end.x + 1;
+            }
+            if end.y > height {
+                height = end.y + 1;
+            }
+
+            reds.push(end.clone());
+            edges.push(new_edge(&mut last_point, &mut end.clone()));
+            last_point = end;
+
+            i += 1;
+        }
+        print_state(&edges, width, height);
+
+        for x in 7..11 + 1 {
+            let y = 1;
+            println!("-- test {},{} should be within poly --", x, y);
+            let res = corner_is_in_poly(&Point { x, y }, &edges);
+            assert_eq!(true, res)
+        }
+        for x in 7..11 + 1 {
+            let y = 2;
+            println!("-- test {},{} should be within poly --", x, y);
+            let res = corner_is_in_poly(&Point { x, y }, &edges);
+            assert_eq!(true, res)
+        }
+        for x in 2..11 + 1 {
+            let y = 3;
+            println!("-- test {},{} should be within poly --", x, y);
+            let res = corner_is_in_poly(&Point { x, y }, &edges);
+            assert_eq!(true, res)
+        }
+        for x in 2..11 + 1 {
+            let y = 4;
+            println!("-- test {},{} should be within poly --", x, y);
+            let res = corner_is_in_poly(&Point { x, y }, &edges);
+            assert_eq!(true, res)
+        }
+        for x in 2..11 + 1 {
+            let y = 5;
+            println!("-- test {},{} should be within poly --", x, y);
+            let res = corner_is_in_poly(&Point { x, y }, &edges);
+            assert_eq!(true, res)
+        }
+        for x in 9..11 + 1 {
+            let y = 6;
+            println!("-- test {},{} should be within poly --", x, y);
+            let res = corner_is_in_poly(&Point { x, y }, &edges);
+            assert_eq!(true, res)
+        }
+        for x in 9..11 + 1 {
+            let y = 7;
+            println!("-- test {},{} should be within poly --", x, y);
+            let res = corner_is_in_poly(&Point { x, y }, &edges);
+            assert_eq!(true, res)
+        }
+        for x in 3..5 + 1 {
+            let y = 6;
+            println!("-- test {},{} should be within poly --", x, y);
+            let res = corner_is_in_poly(&Point { x, y }, &edges);
+            assert_eq!(true, res)
+        }
+        for x in 3..5 + 1 {
+            let y = 7;
+            println!("-- test {},{} should be within poly --", x, y);
+            let res = corner_is_in_poly(&Point { x, y }, &edges);
+            assert_eq!(true, res)
+        }
+
+        println!("-- test {},{} should NOT be within poly --", 7, 7);
+        let res = corner_is_in_poly(&Point { x: 7, y: 6 }, &edges);
+        assert_eq!(false, res);
+        println!("-- test {},{} should NOT be within poly --", 7, 7);
+        let res = corner_is_in_poly(&Point { x: 7, y: 7 }, &edges);
+        assert_eq!(false, res);
+        println!("-- test {},{} should NOT be within poly --", 7, 7);
+        let res = corner_is_in_poly(&Point { x: 7, y: 8 }, &edges);
+        assert_eq!(false, res);
+        println!("-- test {},{} should NOT be within poly --", 7, 7);
+        let res = corner_is_in_poly(&Point { x: 6, y: 7 }, &edges);
+        assert_eq!(false, res);
+
+        Ok(())
+    }
 }
