@@ -145,10 +145,12 @@ impl IdxRange {
             max: end,
         });
     }
+
     fn is_inrange(&self, key: usize, val: usize) -> bool {
         if let None = self.index.get(&key) {
             return false;
         }
+        // technically means is touching an edge so we know it's valid / inside / 1 edge only
         for r in &self.index[&key] {
             if val >= r.min && val <= r.max {
                 return true;
@@ -156,10 +158,41 @@ impl IdxRange {
         }
         return false;
     }
+
 }
 
-fn is_inbounds(red_cols: &IdxRange, red_rows: &IdxRange, pos: (usize, usize)) -> bool {
-    return red_rows.is_inrange(pos.1, pos.0) && red_cols.is_inrange(pos.0, pos.1);
+fn is_inbounds(
+    red_cols: &IdxRange,
+    red_rows: &IdxRange,
+    pos: (usize, usize),
+    cache: &mut HashMap<(usize, usize), bool>,
+) -> bool {
+    if let Some(cached_val) = cache.get(&pos) {
+        return *cached_val;
+    }
+    // count the number of edges hit on the perimeter
+    if red_rows.is_inrange(pos.1, pos.0) || red_cols.is_inrange(pos.0, pos.1) {
+        if VERBOSE {
+            println!(
+                "test ({},{}) is in bounds TRUE (by direct hit)",
+                pos.0, pos.1
+            )
+        }
+        cache.insert(pos, true);
+        return true;
+    }
+
+    let edges = red_rows.raycast_ranges_to_zero(pos.1, pos.0)
+        + red_cols.raycast_ranges_to_zero(pos.0, pos.1);
+    let res = edges % 2 > 0;
+    if VERBOSE {
+        println!(
+            "test ({},{}) is in bounds {} (by raycast count {})",
+            pos.0, pos.1, res, edges
+        )
+    }
+    cache.insert(pos, res);
+    return res;
 }
 
 fn part2(input: String) {
@@ -279,6 +312,7 @@ fn part2(input: String) {
     let mut max_area: i64 = 0;
     let mut max_a: (usize, usize) = (0, 0);
     let mut max_b: (usize, usize) = (0, 0);
+    let mut cache: HashMap<(usize, usize), bool> = HashMap::new();
 
     for i in 0..c {
         let a = &reds[i];
@@ -300,16 +334,16 @@ fn part2(input: String) {
             }
 
             // Check all 4 corners are withing polygon
-            if !is_inbounds(&red_cols, &red_rows, (minx, miny)) {
+            if !is_inbounds(&red_cols, &red_rows, (minx, miny), &mut cache) {
                 continue;
             }
-            if !is_inbounds(&red_cols, &red_rows, (minx, maxy)) {
+            if !is_inbounds(&red_cols, &red_rows, (minx, maxy), &mut cache) {
                 continue;
             }
-            if !is_inbounds(&red_cols, &red_rows, (maxx, miny)) {
+            if !is_inbounds(&red_cols, &red_rows, (maxx, miny), &mut cache) {
                 continue;
             }
-            if !is_inbounds(&red_cols, &red_rows, (maxx, maxy)) {
+            if !is_inbounds(&red_cols, &red_rows, (maxx, maxy), &mut cache) {
                 continue;
             }
 
