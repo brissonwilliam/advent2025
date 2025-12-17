@@ -16,7 +16,7 @@ static TESTINPUT: &str = "
 static TESTINPUT2: &str = "
 ";
 
-static VERBOSE: bool = false;
+static VERBOSE: bool = true;
 
 fn main() {
     println!("********************");
@@ -98,26 +98,63 @@ impl std::fmt::Display for MinMax {
 }
 
 struct IdxRange {
-    index: HashMap<usize, MinMax>,
+    index: HashMap<usize, Vec<MinMax>>,
 }
 
 impl IdxRange {
-    fn update(&mut self, key: usize, val: usize) {
+    fn add_range(&mut self, key: usize, mut start: usize, mut end: usize) {
+        if start > end {
+            let tmp = start;
+            start = end;
+            end = tmp;
+        }
+
         if let None = self.index.get(&key) {
-            self.index.insert(key, MinMax { min: val, max: val });
+            let mut newvec: Vec<MinMax> = Vec::new();
+            newvec.push(MinMax {
+                min: start,
+                max: end,
+            });
+            self.index.insert(key, newvec);
         }
-        if val < self.index[&key].min {
-            self.index.get_mut(&key).unwrap().min = val;
+
+        // append to existing range if possible
+        let c = self.index[&key].len();
+        for i in 0..c {
+            let r = self.index.get_mut(&key).unwrap();
+
+            if end < r[i].min || start > r[i].max {
+                continue;
+            }
+
+            // expand left
+            if start < r[i].min {
+                r.get_mut(i).unwrap().min = start;
+            }
+            if end > r[i].max {
+                // expand right
+                r.get_mut(i).unwrap().max = end;
+            }
+
+            // updated by extending
+            return;
         }
-        if val > self.index[&key].max {
-            self.index.get_mut(&key).unwrap().max = val;
-        }
+
+        self.index.get_mut(&key).unwrap().push(MinMax {
+            min: start,
+            max: end,
+        });
     }
     fn is_inrange(&self, key: usize, val: usize) -> bool {
         if let None = self.index.get(&key) {
             return false;
         }
-        return val >= self.index[&key].min && val <= self.index[&key].max;
+        for r in &self.index[&key] {
+            if val >= r.min && val <= r.max {
+                return true;
+            }
+        }
+        return false;
     }
 }
 
@@ -144,8 +181,6 @@ fn part2(input: String) {
 
         reds.push((x, y));
     }
-    width += 2; // padding
-    height += 1;
 
     // Find min max of rows
     let c = reds.len();
@@ -159,9 +194,6 @@ fn part2(input: String) {
     for i in 0..c {
         let x = reds[i].0;
         let y = reds[i].1;
-
-        red_rows.update(y, x);
-        red_cols.update(x, y);
 
         if VERBOSE {
             println!("processing {},{}", x, y);
@@ -177,39 +209,17 @@ fn part2(input: String) {
         let next_y = next.1;
 
         // green tiles going horizontaly on x
-        let dx = (next_x as i64 - x as i64);
+        let dx = next_x as i32 - x as i32;
         if next_y == y && dx != 0 {
-            if dx > 0 {
-                // going from left to right
-                for xval in x + 1..next_x {
-                    red_rows.update(y, xval);
-                    red_cols.update(xval, y);
-                }
-            } else {
-                // going right to left (reverse so we start at next)
-                for xval in next_x + 1..x {
-                    red_rows.update(y, xval);
-                    red_cols.update(xval, y);
-                }
-            }
+            // add_range will take care of reversing order if dx < 0
+            red_rows.add_range(y, x, next_x);
             continue;
         }
         // green tiles going vertically on x
-        let dy = (next_y as i64 - y as i64);
+        let dy = next_y as i32 - y as i32;
         if next_x == x && dy != 0 {
-            if dy > 0 {
-                // going from up from low to high
-                for yval in y + 1..next_y {
-                    red_cols.update(x, yval);
-                    red_rows.update(yval, x);
-                }
-            } else {
-                // going down high to low (reverse so we start at next)
-                for yval in next_y + 1..y {
-                    red_cols.update(x, yval);
-                    red_rows.update(yval, x);
-                }
-            }
+            // add_range will take care of reversing order if dx < 0
+            red_cols.add_range(x, y, next_y);
             continue;
         }
     }
@@ -225,14 +235,18 @@ fn part2(input: String) {
             state.push(row);
         }
 
-        for (y, range) in red_rows.index.iter() {
-            for x in range.min..range.max + 1 {
-                state[*y][x] = 1
+        for (y, ranges) in red_rows.index.iter() {
+            for r in ranges.iter() {
+                for x in r.min..r.max + 1 {
+                    state[*y][x] = 1
+                }
             }
         }
-        for (x, range) in red_cols.index.iter() {
-            for y in range.min..range.max + 1 {
-                state[y][*x] = 1
+        for (x, ranges) in red_cols.index.iter() {
+            for r in ranges.iter() {
+                for y in r.min..r.max + 1 {
+                    state[y][*x] = 1
+                }
             }
         }
 
@@ -247,12 +261,16 @@ fn part2(input: String) {
 
     if VERBOSE {
         println!("\nred idx by row");
-        for (r, val) in red_rows.index.iter() {
-            println!("row {} | range {}", r, val);
+        for (row, ranges) in red_rows.index.iter() {
+            for r in ranges {
+                println!("row {} | range {} {}", row, r.min, r.max);
+            }
         }
         println!("\nred idx by col");
-        for (r, val) in red_cols.index.iter() {
-            println!("col {} | range {}", r, val);
+        for (col, ranges) in red_cols.index.iter() {
+            for r in ranges {
+                println!("col {} | range {} {}", col, r.min, r.max);
+            }
         }
         println!("");
     }
